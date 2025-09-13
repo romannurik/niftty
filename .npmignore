@@ -1,0 +1,8 @@
+_sandbox
+src/**/*
+tsconfig.*json
+tsdown.*.ts
+pkg.internal
+docs
+test
+demo

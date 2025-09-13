@@ -1,0 +1,54 @@
+{
+  "name": "niftty",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A code and code-diff prettyprinter for the terminal, powered by Shiki",
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "shiki",
+    "terminal",
+    "diff",
+    "syntax highlighting"
+  ],
+  "author": "Google LLC",
+  "license": "Apache-2.0",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "dev": "npm run bundle -- -w src",
+    "build": "npm run bundle",
+    "bundle": "tsdown",
+    "test": "FORCE_COLOR=1 vitest run",
+    "test:update": "FORCE_COLOR=1 vitest run -u",
+    "dev:test": "FORCE_COLOR=1 vitest",
+    "dev:test:update": "FORCE_COLOR=1 vitest -u"
+  },
+  "dependencies": {
+    "shiki": "^3.12.2",
+    "string-length": "^6.0.0",
+    "tinycolor2": "^1.6.0"
+  },
+  "devDependencies": {
+    "@types/diff": "^7.0.2",
+    "@types/jest-image-snapshot": "^6.4.0",
+    "@types/node": "^22.18.1",
+    "@types/tinycolor2": "^1.4.6",
+    "chalk": "^5.6.2",
+    "concurrently": "^9.1.2",
+    "jest-image-snapshot": "^6.5.1",
+    "playwright": "^1.55.0",
+    "tsdown": "^0.15.1",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

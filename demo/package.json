@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "niftty": "file:..",
+    "tsx": "^4.20.5"
+  }
+}
