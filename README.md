@@ -3,7 +3,7 @@
 
 # Niftty 🐚
 
-<img src="./art/intra-line.png" alt="Hero screenshot" width="800">
+![Hero screenshot](./art/intra-line.png)
 
 A nifty code syntax highlighter for the terminal, powered by [Shiki](https://shiki.style/).
 
@@ -59,13 +59,13 @@ niftty({
 
 That looks like this:
 
-<img src="./art/streaming.gif" alt="Streaming" width="800">
+![Streaming](./art/streaming.gif)
 
 # Themes
 
 Any VSCode- or shiki-compatible theme should work on modern shells.
 
-<img src="./art/themes.png" alt="Themes" width="800">
+![Themes](./art/themes.png)
 
 # More
 
