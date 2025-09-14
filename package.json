@@ -1,11 +1,8 @@
 {
   "name": "niftty",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "type": "module",
   "description": "A code and code-diff prettyprinter for the terminal, powered by Shiki",
-  "engines": {
-    "node": ">=20"
-  },
   "keywords": [
     "shiki",
     "terminal",
@@ -18,15 +15,18 @@
     "type": "git",
     "url": "https://github.com/romannurik/niftty"
   },
-  "main": "dist/index.cjs",
-  "module": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.cts",
   "exports": {
     ".": {
       "import": "./dist/index.js",
-      "require": "./dist/index.cjs",
-      "types": "./dist/index.d.ts"
-    }
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
   },
   "scripts": {
     "dev": "npm run bundle -- -w src",
