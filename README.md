@@ -1,5 +1,5 @@
-![NPM Version](https://img.shields.io/npm/v/niftty)
-![GitHub License](https://img.shields.io/github/license/romannurik/niftty)
+[![NPM Version](https://img.shields.io/npm/v/niftty)](https://npmjs.com/package/niftty)
+[![GitHub License](https://img.shields.io/github/license/romannurik/niftty)](https://github.com/romannurik/niftty/tree/main/LICENSE)
 
 # Niftty 🐚
 
