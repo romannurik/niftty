@@ -44,6 +44,24 @@ process.stdout.write(
 );
 ```
 
+## API
+
+### `niftty(options: Options): Promise<string>`
+
+Renders a code snippet using [shiki](https://shiki.style/), returning an ANSI-encoded string.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `code` | `string` | The code to render |
+| `theme` | `shiki.ThemeRegistration \| shiki.BundledTheme` | Named theme or VSCode-compatible theme object |
+| `diffWith?` | `string` | Code to diff against for showing additions/removals |
+| `lang?` | `shiki.BundledLanguage \| shiki.SpecialLanguage` | Language for syntax highlighting (auto-detected from filePath if not provided) |
+| `filePath?` | `string` | File path to help with language detection when `lang` is not specified |
+| `collapseUnchanged?` | `boolean \| Partial<CollapseConfig>` | Whether to collapse unchanged lines in diffs |
+| `streaming?` | `boolean \| number` | Enable streaming mode for LLM code generation. Number customizes window size |
+| `highlighter?` | `shiki.Highlighter` | Reuse a shiki highlighter instance for better performance |
+| `lineNumbers?` | `boolean \| "both"` | Show line numbers. Use `"both"` for old and new line numbers in diffs |
+
 # Streaming
 
 If you're building a coding agent and streaming code from an LLM, and want to show that, turn on streaming mode, and feed in the original code (`diffWith` and the partial currently-emitted `code`. Niftty will render an on-the-fly diff.
