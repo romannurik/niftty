@@ -1,0 +1,73 @@
+.container {
+  display: grid;
+  grid-template:
+    'toolbar toolbar toolbar' auto
+    'left term right' 1fr / 1fr 2fr 1fr;
+  flex-direction: row;
+  gap: 12px;
+  padding: 20px;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.editorLeft,
+.editorRight,
+.terminalContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  h2 {
+    margin: 0;
+    flex: 0 0 auto;
+  }
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  h1 {
+    margin: 0;
+  }
+
+  > * {
+    flex: 0 0 auto;
+  }
+}
+
+.terminalContainer {
+  grid-area: term;
+
+  .terminal {
+    flex: 1 1 0;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+}
+
+.editorLeft,
+.editorRight {
+  textarea {
+    flex: 1 1 0;
+    border-radius: 8px;
+    border: 0;
+    padding: 4px;
+    font-size: 13px;
+    font-family: Google Sans Code;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: scroll;
+    min-height: 0;
+    box-sizing: border-box;
+  }
+}
+
+.editorLeft {
+  grid-area: left;
+}
+
+.editorRight {
+  grid-area: right;
+}
