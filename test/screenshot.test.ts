@@ -113,10 +113,13 @@ const CONFIGURATIONS: Record<string, Partial<RenderParams>> = {
 describe("Screenshot tests", () => {
   for (let [name, overrideParams] of Object.entries(CONFIGURATIONS)) {
     it(`Renders with configuration: ${name}`, async () => {
-      let { img } = await nifttyToImage({
+      let { img, output } = await nifttyToImage({
         ...DEFAULT_PARAMS,
         ...overrideParams,
       });
+      if (process.env.DEBUG) {
+        process.stdout.write(output + "\n");
+      }
       expect(img).toMatchImageSnapshot({
         customSnapshotIdentifier: (_) =>
           `golden-${name.replace(/[^\w]+/g, "-").toLowerCase()}`,
