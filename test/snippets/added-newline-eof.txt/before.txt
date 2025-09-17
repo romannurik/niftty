@@ -1,0 +1,3 @@
+Here we add a newline
+character to the end
+of the file

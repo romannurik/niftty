@@ -14,26 +14,76 @@ type CollapseConfig = {
   separator: (numCollapsedLines: number) => string;
 };
 
+/**
+ * Options for rendering code snippet.
+ */
 type Options = {
+  /**
+   * The code to render.
+   */
   code: string;
-  lang?: shiki.BundledLanguage | shiki.SpecialLanguage;
-  theme: shiki.ThemeRegistration | shiki.BundledTheme;
+  /**
+   * If specified, the code to diff against, for showing additions and removals.
+   */
   diffWith?: string;
-  collapseUnchanged?: boolean | Partial<CollapseConfig>;
+  /**
+   * The language to use for syntax highlighting. If not provided, will be automatically detected
+   * based on the file path.
+   */
+  lang?: shiki.BundledLanguage | shiki.SpecialLanguage;
+  /**
+   * The file path of the code, used to help with language detection if `lang` is not specified.
+   */
   filePath?: string;
+  /**
+   * The named syntax highlighting theme or VSCode-compatible theme object.
+   */
+  theme: shiki.ThemeRegistration | shiki.BundledTheme;
+  /**
+   * When showing diffs, whether to collapse unchanged lines. If an object, configures the collapse
+   * behavior.
+   */
+  collapseUnchanged?: boolean | Partial<CollapseConfig>;
+  /**
+   * Whether to render in "streaming" mode, typically used for showing code being generated or
+   * edited (by regenerating with changes) by an LLM. In this mode, the last line is treated as the
+   * "current" line being edited, and any remaining lines in the "after" code that haven't been
+   * reached yet are dimmed.
+   *
+   * If this is a number, customizes the streaming window size, in number of lines.
+   */
   streaming?: boolean | number;
+  /**
+   * If specified, the `shiki` highlighter instance to use. If not provided, a new instance will be
+   * created. Use this if calling `niftty` in rapid succession.
+   */
   highlighter?: shiki.Highlighter;
+  /**
+   * Whether to show line numbers. If `"both"`, shows both old and new line numbers.
+   */
   lineNumbers?: boolean | "both";
 };
 
-// only for interesting lines (i.e. added/removed/modified)
 type LineInfo = {
-  type: "added" | "removed";
+  type:
+    | "default"
+    // diff-only
+    | "added"
+    | "removed"
+    // streaming-only
+    | "current"
+    | "upcoming";
+  newLineNumber?: number;
+  oldLineNumber?: number;
+  collapse?: boolean;
+  startsCollapseSpan?: number;
+  tokens?: shiki.ThemedToken[];
   /**
    * Sparse array of per-character modification marks, maps to true if the character at
    * the given index into the array has a mark
    */
   marks?: (true | undefined)[];
+  specialText?: string; // special text to show instead of tokens, e.g. "added newline"
 };
 
 const DEFAULT_COLLAPSE_PADDING = 3;
@@ -44,10 +94,8 @@ const DEFAULT_INSERT_BG = "#17975f33";
 const DEFAULT_REMOVE_BG = "#df404733";
 
 /**
- * Renders a syntax-highlighted code snippet using [shiki](https://shiki.style/), in a "streaming"
- * style, typically used for showing code being generated or edited (by regenerating with changes)
- * by an LLM. Syntax highlighting is powered by the same engine and with the same automatic language
- * detection logic as the `CodeSnippet` component.
+ * Renders a code snippet using [shiki](https://shiki.style/), into an ANSI-encoded string that
+ * can be written to `stdout`, e.g. using `process.stdout.write()`.
  */
 export async function niftty({
   code,
@@ -60,12 +108,12 @@ export async function niftty({
   lineNumbers,
   highlighter,
 }: Options): Promise<string> {
-  let out: string[] = [];
+  let out: string[] = []; // terminal output
 
-  // do this here to support CJS
+  // load shiki here to support CJS
   const shiki = await import("shiki");
 
-  let resolvedLang = resolveLang(lang, filePath, shiki.bundledLanguagesInfo); // TODO: resolve based on filePath (common language extensions) and code (magika)
+  let resolvedLang = resolveLang(lang, filePath, shiki.bundledLanguagesInfo);
   highlighter =
     highlighter ||
     (await shiki.createHighlighter({
@@ -74,36 +122,63 @@ export async function niftty({
     }));
 
   if (typeof theme === "string") {
+    // we need to access theme vars directly, so for named themes, get the theme object
     theme = highlighter.getTheme(theme);
   }
 
+  // prep vars
   let isDiff = diffWith !== undefined;
   let from = diffWith || "";
   let to = code;
 
-  if (!from.endsWith("\n")) from += "\n";
-  if (!to.endsWith("\n")) to += "\n";
+  let fromNewlineEOF = true,
+    toNewlineEOF = true;
+  if (!from.endsWith("\n")) {
+    from += "\n";
+    fromNewlineEOF = false;
+  }
+  if (!to.endsWith("\n")) {
+    to += "\n";
+    toNewlineEOF = false;
+  }
   let fromLines = from.split(/\n/g);
   let toLines = to.split(/\n/g);
-  let fromLinesToDiff = toLines.length + 3;
+  let fromLinesToDiff = streaming ? toLines.length + 3 : fromLines.length;
   let changes = diffLines(fromLines.slice(0, fromLinesToDiff).join("\n"), to);
-  let upcomingLines = streaming ? fromLines.slice(fromLinesToDiff) : [];
-  let numLines = (Math.max(fromLines.length, toLines.length) || 1) + 1;
-  let numColumns =
+  let maxLines = (Math.max(fromLines.length, toLines.length) || 1) + 1;
+  let maxCols =
     Math.max(
       ...toLines.map((l) => l.length),
       ...fromLines.map((l) => l.length),
       1
     ) + 1; // extra padding on the right
-  let lineDigits = String(numLines).length;
-
+  let lineDigits = String(maxLines).length;
   let lastChange = changes.at(-1);
   let secondToLastChange = changes.at(-2);
 
-  // if we see a "removed" block followed by an "added" block, or just a "removed" block,
-  // it typically means we just haven't reached that part of the file yet... treat the removed
-  // block as simply part of the "after" block
+  // collapse config prep
+  let collapseConfig: CollapseConfig | false = false;
+  if (collapseUnchanged && isDiff && !streaming) {
+    collapseConfig = {
+      separator:
+        collapseUnchanged === true || collapseUnchanged.separator === undefined
+          ? DEFAULT_COLLAPSE_SEPARATOR
+          : collapseUnchanged.separator,
+      padding:
+        collapseUnchanged === true || collapseUnchanged.padding === undefined
+          ? DEFAULT_COLLAPSE_PADDING
+          : collapseUnchanged.padding,
+    };
+  }
+
+  // streaming-specific prep
+  let upcomingLines: string[] = [];
   if (streaming) {
+    upcomingLines = fromLines.slice(fromLinesToDiff);
+
+    // if we see a "removed" block followed by an "added" block, or just a "removed" block,
+    // it typically means we just haven't reached that part of the file yet... treat the removed
+    // block as simply part of the "after" block
     if (lastChange?.added && secondToLastChange?.removed) {
       let added = lastChange;
       let [removed] = changes.splice(changes.length - 2, 1);
@@ -120,8 +195,10 @@ export async function niftty({
   }
 
   // convert the set of changes into a list of lines in prep for rendering
-  let lineInfo: Record<number, LineInfo> = {};
-  let lineNumber = 1;
+  let lineInfos: LineInfo[] = []; // first element always empty
+  let unifiedLineNumber = 1; // in unified space
+  let oldLineNumber = 1; // in original line space
+  let newLineNumber = 1; // in original line space
   if (isDiff) {
     for (let i = 0; i < changes.length; i++) {
       let change = changes[i]!;
@@ -134,14 +211,14 @@ export async function niftty({
           change.value.replace(/\n$/, ""),
           nextChange.value.replace(/\n$/, "")
         );
-        let fromLine = lineNumber;
+        let fromUnifiedLine = unifiedLineNumber;
         let fromCol = 0;
-        let toLine = lineNumber + numLines;
+        let toUnifiedLine = unifiedLineNumber + numLines;
         let toCol = 0;
         for (let innerChange of innerChanges) {
           while (true) {
-            lineInfo[fromLine] ||= { type: "removed" };
-            lineInfo[toLine] ||= { type: "added" };
+            lineInfos[fromUnifiedLine] ||= { type: "removed", oldLineNumber };
+            lineInfos[toUnifiedLine] ||= { type: "added", newLineNumber };
             let newlineIndex = innerChange.value.indexOf("\n");
             let innerValue =
               newlineIndex >= 0
@@ -149,14 +226,14 @@ export async function niftty({
                 : innerChange.value;
             if (innerChange.removed) {
               for (let c = 0; c < innerValue.length; c++) {
-                lineInfo[fromLine]!.marks ||= [];
-                lineInfo[fromLine]!.marks![fromCol] = true;
+                lineInfos[fromUnifiedLine]!.marks ||= [];
+                lineInfos[fromUnifiedLine]!.marks![fromCol] = true;
                 ++fromCol;
               }
             } else if (innerChange.added) {
               for (let c = 0; c < innerValue.length; c++) {
-                lineInfo[toLine]!.marks ||= [];
-                lineInfo[toLine]!.marks![toCol] = true;
+                lineInfos[toUnifiedLine]!.marks ||= [];
+                lineInfos[toUnifiedLine]!.marks![toCol] = true;
                 ++toCol;
               }
             } else {
@@ -168,14 +245,21 @@ export async function niftty({
             if (newlineIndex >= 0) {
               innerChange.value = innerChange.value.substring(newlineIndex + 1);
               if (innerChange.removed) {
-                ++fromLine;
+                ++fromUnifiedLine;
+                ++oldLineNumber;
+                ++unifiedLineNumber;
                 fromCol = 0;
               } else if (innerChange.added) {
-                ++toLine;
+                ++toUnifiedLine;
+                ++newLineNumber;
+                ++unifiedLineNumber;
                 toCol = 0;
               } else {
-                ++fromLine;
-                ++toLine;
+                ++fromUnifiedLine;
+                ++oldLineNumber;
+                ++toUnifiedLine;
+                ++newLineNumber;
+                ++unifiedLineNumber;
                 fromCol = 0;
                 toCol = 0;
               }
@@ -185,75 +269,156 @@ export async function niftty({
           }
         }
         // skip over the next change, we've already processed it
-        lineNumber += nextChange.count || 0;
+        unifiedLineNumber = toUnifiedLine + 1;
+        ++oldLineNumber;
+        ++newLineNumber;
         ++i;
       } else if (change.added || change.removed) {
         // simply mark up a new or removed line, not a modified line
         for (let l = 0; l < numLines; l++) {
-          lineInfo[lineNumber + l] = {
+          lineInfos[unifiedLineNumber] = {
             type: change.added ? "added" : "removed",
+            oldLineNumber: change.removed ? oldLineNumber : undefined,
+            newLineNumber: change.added ? newLineNumber : undefined,
           };
+          ++unifiedLineNumber;
+          if (change.added) {
+            ++newLineNumber;
+          } else if (change.removed) {
+            ++oldLineNumber;
+          }
+        }
+      } else {
+        for (let l = 0; l < numLines; l++) {
+          lineInfos[unifiedLineNumber] = {
+            type: "default",
+            oldLineNumber,
+            newLineNumber,
+          };
+          ++oldLineNumber;
+          ++newLineNumber;
+          ++unifiedLineNumber;
         }
       }
-      lineNumber += numLines;
+    }
+  } else {
+    for (let l = 0; l < toLines.length; l++) {
+      lineInfos[l + 1] = {
+        type: "default",
+        newLineNumber: newLineNumber++,
+      };
+    }
+    unifiedLineNumber = toLines.length + 1;
+  }
+
+  // mark upcoming lines
+  let currentLineNumber = unifiedLineNumber - 1;
+  if (streaming) {
+    // current line
+    lineInfos[currentLineNumber]!.type = "current";
+    lineInfos[currentLineNumber]!.oldLineNumber = oldLineNumber;
+    ++oldLineNumber;
+    // upcoming lines
+    for (let l = 1; l < upcomingLines.length; l++) {
+      lineInfos[unifiedLineNumber] = {
+        type: "upcoming",
+        oldLineNumber,
+      };
+      ++unifiedLineNumber;
+      ++oldLineNumber;
     }
   }
 
-  let currentLineNumber = lineNumber - 1;
+  // mark collapsed lines
+  if (collapseConfig) {
+    let prevChangedUnifiedLineNumber = 0; // in displayed line space
+    let collapseLength: number | undefined; // after the previous added/removed line's line number
+    for (
+      let unifiedLineNumber = 1;
+      unifiedLineNumber < lineInfos.length;
+      unifiedLineNumber++
+    ) {
+      let { type } = lineInfos[unifiedLineNumber] || {};
+      if (type !== "default") {
+        prevChangedUnifiedLineNumber = unifiedLineNumber;
+        collapseLength = undefined;
+        continue;
+      }
 
-  const codeToHighlight = isDiff
-    ? changes.map((c) => c.value).join("") +
-      (upcomingLines.length ? upcomingLines.join("\n") : "")
-    : code;
-  const result = highlighter.codeToTokens(codeToHighlight, {
+      // logic to collapse unchanged lines in diffs
+      let shouldCollapse = false;
+      if (collapseLength === undefined) {
+        // identify the span of unchanged lines we're in
+        let i = unifiedLineNumber;
+        for (; i < lineInfos.length; i++) {
+          if (
+            lineInfos[i]?.type === "added" ||
+            lineInfos[i]?.type === "removed"
+          ) {
+            collapseLength = i - unifiedLineNumber;
+            break;
+          }
+        }
+        if (collapseLength === undefined) {
+          // collapse lines at the end (padding later gets trimmed)
+          collapseLength = i - unifiedLineNumber + collapseConfig.padding;
+        }
+      }
+
+      let indexInCollapseSpan =
+        unifiedLineNumber - prevChangedUnifiedLineNumber;
+      if (prevChangedUnifiedLineNumber === 0) {
+        // collapse logic at the start is different than everywhere else
+        shouldCollapse =
+          indexInCollapseSpan <= collapseLength - collapseConfig.padding;
+        if (indexInCollapseSpan === 1) {
+          lineInfos[unifiedLineNumber]!.startsCollapseSpan =
+            collapseLength - collapseConfig.padding || undefined;
+        }
+      } else {
+        shouldCollapse =
+          indexInCollapseSpan > collapseConfig.padding &&
+          indexInCollapseSpan <= collapseLength - collapseConfig.padding;
+        if (indexInCollapseSpan === collapseConfig.padding + 1) {
+          lineInfos[unifiedLineNumber]!.startsCollapseSpan =
+            collapseLength - collapseConfig.padding * 2 || undefined;
+        }
+      }
+      lineInfos[unifiedLineNumber]!.collapse = shouldCollapse;
+    }
+  }
+
+  // perform syntax highlighting and set tokens for each line
+  let result = highlighter.codeToTokens(to, {
     theme,
     lang: resolvedLang,
   });
-  let collapse: CollapseConfig | false = false;
-  if (collapseUnchanged) {
-    collapse = {
-      separator:
-        collapseUnchanged === true || collapseUnchanged.separator === undefined
-          ? DEFAULT_COLLAPSE_SEPARATOR
-          : collapseUnchanged.separator,
-      padding:
-        collapseUnchanged === true || collapseUnchanged.padding === undefined
-          ? DEFAULT_COLLAPSE_PADDING
-          : collapseUnchanged.padding,
-    };
-  }
-  let prevChangedLineNumber = 0; // in displayed line space
-  let unchangedLineCount: number | undefined; // after the previous added/removed line's line number
+  let beforeResult = isDiff
+    ? highlighter.codeToTokens(from, { theme, lang: resolvedLang })
+    : result;
 
-  let oldLineNumber = 0; // in original line space
-  let newLineNumber = 0; // in original line space
-  for (let lineNumber = 1; lineNumber <= result.tokens.length; lineNumber++) {
-    let lineType: "default" | "added" | "removed" | "current" | "upcoming" =
-      "default";
-    if (lineNumber === currentLineNumber && streaming) {
-      lineType = "current";
-      ++oldLineNumber;
-      ++newLineNumber;
-    } else if (lineNumber > currentLineNumber && streaming) {
-      lineType = "upcoming";
-      ++oldLineNumber;
-      ++newLineNumber;
-    } else if (lineInfo[lineNumber] && isDiff) {
-      if (lineInfo[lineNumber]?.type === "added") {
-        lineType = "added";
-        ++newLineNumber;
-        prevChangedLineNumber = lineNumber;
-        unchangedLineCount = undefined;
-      } else if (lineInfo[lineNumber]?.type === "removed") {
-        lineType = "removed";
-        ++oldLineNumber;
-        prevChangedLineNumber = lineNumber;
-        unchangedLineCount = undefined;
-      }
-    } else {
-      ++oldLineNumber;
-      ++newLineNumber;
-    }
+  if (fromNewlineEOF !== toNewlineEOF) {
+    let specialText = toNewlineEOF
+      ? "(added newline at end of file)"
+      : "(removed newline at end of file)";
+    lineInfos.push({
+      type: toNewlineEOF ? "added" : "removed",
+      specialText,
+    });
+    maxCols = Math.max(maxCols, specialText.length + 1);
+  }
+
+  for (let lineNumber = 1; lineNumber < lineInfos.length; lineNumber++) {
+    let lineInfo = (lineInfos[lineNumber] || {}) as Partial<LineInfo>;
+    let { type, oldLineNumber, newLineNumber } = lineInfo;
+    oldLineNumber ||= 0;
+    newLineNumber ||= 0;
+
+    let lineTokens =
+      (type === "removed" || type === "upcoming"
+        ? beforeResult.tokens[oldLineNumber - 1]!
+        : result.tokens[newLineNumber - 1]!) || [];
+    lineInfo.tokens = lineTokens;
 
     let fg = result.fg || theme.colors?.["editorForeground"];
     let bg = result.bg || theme.colors?.["editorBackground"];
@@ -298,64 +463,27 @@ export async function niftty({
       )
     );
 
-    if (lineType === "default" && isDiff && collapse) {
-      // logic to collapse unchanged lines in diffs
-      let shouldCollapse = false;
-      if (unchangedLineCount === undefined) {
-        // prepare span
-        let i = lineNumber;
-        for (; i <= result.tokens.length; i++) {
-          if (
-            lineInfo[i]?.type === "added" ||
-            lineInfo[i]?.type === "removed"
-          ) {
-            unchangedLineCount = i - lineNumber;
-            break;
-          }
+    if (collapseConfig && lineInfo.collapse) {
+      // if this is the start of a collapse span, render the separator
+      if (lineInfo.startsCollapseSpan) {
+        // render collapse marker
+        let prefix = "  "; // for the annotation
+        if (lineNumbers === "both") {
+          prefix += "".padEnd(2 * (lineDigits + 1), " ") + " ";
+        } else if (lineNumbers) {
+          prefix += "".padEnd(lineDigits + 1, " ") + " ";
         }
-        if (unchangedLineCount === undefined) {
-          // collapse lines at the end
-          unchangedLineCount = i - lineNumber + collapse.padding;
-        }
+        collapseConfig
+          .separator(lineInfo.startsCollapseSpan)
+          .split(/\n/g)
+          .forEach((sepLine) =>
+            out.push(
+              annotationChalk(prefix + sepLine.padEnd(maxCols, " ") + "\n")
+            )
+          );
       }
-      let indexInCollapseSpan = lineNumber - prevChangedLineNumber;
-      if (prevChangedLineNumber === 0) {
-        // collapse logic at the start is different than everywhere else
-        shouldCollapse =
-          indexInCollapseSpan <= unchangedLineCount - collapse.padding;
-      } else {
-        shouldCollapse =
-          indexInCollapseSpan > collapse.padding &&
-          indexInCollapseSpan <= unchangedLineCount - collapse.padding;
-      }
-      if (shouldCollapse) {
-        // skip rendering
-        let firstInCollapseSpan =
-          prevChangedLineNumber === 0
-            ? lineNumber === 1 // special case: collapsing at the start
-            : indexInCollapseSpan === collapse.padding + 1;
-        if (firstInCollapseSpan) {
-          // render collapse marker
-          let prefix = "  "; // for the annotation
-          if (lineNumbers === "both") {
-            prefix += "".padEnd(2 * (lineDigits + 1), " ") + " ";
-          } else if (lineNumbers) {
-            prefix += "".padEnd(lineDigits + 1, " ") + " ";
-          }
-          let unchanged =
-            unchangedLineCount -
-            collapse.padding * (prevChangedLineNumber === 0 ? 1 : 2);
-          collapse
-            .separator(unchanged)
-            .split(/\n/g)
-            .forEach((sepLine) =>
-              out.push(
-                annotationChalk(prefix + sepLine.padEnd(numColumns, " ") + "\n")
-              )
-            );
-        }
-        continue;
-      }
+      // skip rendering
+      continue;
     }
 
     // prepare prefixes
@@ -369,17 +497,18 @@ export async function niftty({
       } else if (lineNumbers === "both") {
         prefixLineNums = [oldLineNumber, newLineNumber];
       }
-      if (lineType === "added") {
+      if (type === "added") {
         lineChalk = insertedLineBgChalk;
         markedTokenLineChalk = insertedTextBgChalk;
         if (lineNumbers === "both") prefixLineNums[0] = 0;
+        else if (lineNumbers) prefixLineNums[0] = 0;
         prefixAnnotation = "+ ";
-      } else if (lineType === "removed") {
+      } else if (type === "removed") {
         lineChalk = removedLineBgCheck;
         markedTokenLineChalk = removedTextBgChalk;
         if (lineNumbers === "both") prefixLineNums[1] = 0;
         prefixAnnotation = "- ";
-      } else if (lineType === "current") {
+      } else if (type === "current") {
         lineChalk = markedTokenLineChalk = chalk.bgHex(
           flattenColors(
             tinycolor.mix(bg || "#000", fg || "#fff", 20).toHexString(),
@@ -387,12 +516,14 @@ export async function niftty({
           )
         );
         prefixAnnotation = "▶ ";
+      } else if (type === "upcoming") {
+        if (lineNumbers === "both") prefixLineNums[1] = 0;
       }
     } else if (lineNumbers) {
       prefixLineNums = [newLineNumber];
     }
 
-    // update foreground baesd on the new background
+    // update foreground based on the new background
     annotationChalk = lineChalk.hex(
       flattenColors(
         theme.colors?.["editorLineNumber.foreground"] ||
@@ -413,21 +544,21 @@ export async function niftty({
     );
 
     // render the actual line, token by token, including marks (changed characters in a modified line)
-    let lineTokens = result.tokens[lineNumber - 1]!;
     let col = 0;
-    if (lineType === "upcoming") {
+    if (type === "upcoming") {
       let fullLine = lineTokens.map((t) => t.content).join("");
       out.push(annotationChalk(fullLine));
       col = fullLine.length;
+    } else if (lineInfo.specialText) {
+      out.push(annotationChalk(lineInfo.specialText));
+      col = lineInfo.specialText.length;
     } else {
-      let marksForLine = lineInfo[lineNumber]?.marks;
+      let marksForLine = lineInfos[lineNumber]?.marks;
       for (let token of lineTokens) {
-        let tokenChalk = lineChalk;
-        let markedTokenChalk = markedTokenLineChalk;
-        if (token.color) {
-          tokenChalk = lineChalk.hex(token.color);
-          markedTokenChalk = markedTokenLineChalk.hex(token.color);
-        }
+        let tokenChalk = lineChalk.hex(token.color || fg || "#fff");
+        let markedTokenChalk = markedTokenLineChalk.hex(
+          token.color || fg || "#fff"
+        );
         let spanStart = 0;
         let inMark = false;
         // iterate the token character-by-character to see if any characters are marked
@@ -458,7 +589,7 @@ export async function niftty({
     }
 
     // render out the rest of the line
-    out.push(lineChalk(" ".repeat(Math.max(0, numColumns - col))) + "\n");
+    out.push(lineChalk(" ".repeat(Math.max(0, maxCols - col))) + "\n");
   }
 
   if (streaming) {
@@ -471,9 +602,13 @@ export async function niftty({
       start = currentLineNumber - Math.floor(window / 2);
     }
     if (start + window > lines.length) {
-      start = Math.max(0, lines.length - window);
+      start = Math.max(0, lines.length - window - 1);
     }
-    return lines.slice(start, start + window).join("\n");
+    return (
+      lines.slice(start, start + window).join("\n") +
+      // end with newline to match non-streaming behavior
+      "\n"
+    );
   }
 
   return out.join("");

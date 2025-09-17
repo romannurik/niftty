@@ -1,11 +1,11 @@
 #!/usr/bin/env npx tsx
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { niftty } from "../dist";
+import { niftty } from "niftty";
 import { createHighlighter } from "shiki";
 
 const DEMO_CHUNK_SIZE = [15, 30] as const;
-const DEMO_CHUNK_DELAY = [20, 70] as const;
+const DEMO_CHUNK_DELAY = [0, 30] as const;
 const STREAM_WINDOW = 20;
 
 let code = fs.readFileSync(
@@ -32,7 +32,7 @@ while (length < code.length) {
   process.stdout.write("\x1b[H");
 
   console.log(`${((after.length / code.length) * 100).toFixed(0)}%`);
-  console.log(
+  process.stdout.write(
     await niftty({
       highlighter,
       code: after,

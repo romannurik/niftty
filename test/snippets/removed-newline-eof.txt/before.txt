@@ -1,0 +1,3 @@
+Here we remove the newline
+character at the end
+of the file
