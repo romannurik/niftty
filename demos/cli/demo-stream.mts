@@ -9,11 +9,11 @@ const DEMO_CHUNK_DELAY = [0, 30] as const;
 const STREAM_WINDOW = 20;
 
 let code = fs.readFileSync(
-  path.resolve(import.meta.dirname, "../test/snippets/big-change.tsx/after.tsx"),
+  path.resolve(import.meta.dirname, "../../test/snippets/big-change.tsx/after.tsx"),
   "utf-8"
 );
 let diffWith = fs.readFileSync(
-  path.resolve(import.meta.dirname, "../test/snippets/big-change.tsx/before.tsx"),
+  path.resolve(import.meta.dirname, "../../test/snippets/big-change.tsx/before.tsx"),
   "utf-8"
 );
 
@@ -21,7 +21,7 @@ console.clear();
 let length = 0;
 let highlighter = await createHighlighter({
   langs: ["tsx"],
-  themes: ["catppuccin-mocha"],
+  themes: ["rose-pine-moon"],
 });
 
 while (length < code.length) {
@@ -39,7 +39,7 @@ while (length < code.length) {
       diffWith,
       streaming: STREAM_WINDOW,
       lang: "tsx",
-      theme: "catppuccin-mocha",
+      theme: "rose-pine-moon",
       lineNumbers: true,
     })
   );
