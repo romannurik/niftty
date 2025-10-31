@@ -19,6 +19,14 @@ const CONFIGURATIONS: Record<string, Partial<RenderParams>> = {
     ...loadSnippet("simple.html"),
     lineNumbers: "both",
   },
+  "Simple / Python": {
+    ...loadSnippet("basic-cases.py"),
+    lineNumbers: true,
+  },
+  "Simple / Java": {
+    ...loadSnippet("basic-cases.java"),
+    lineNumbers: "both",
+  },
   "Simple / Line numbers": { lineNumbers: true, diffWith: undefined },
 
   // Tests focused on diffs

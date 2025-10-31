@@ -49,6 +49,7 @@
     "@types/node": "^22.18.1",
     "@types/tinycolor2": "^1.4.6",
     "concurrently": "^9.1.2",
+    "diff": "^8.0.2",
     "jest-image-snapshot": "^6.5.1",
     "playwright": "^1.55.0",
     "tsdown": "^0.15.1",
