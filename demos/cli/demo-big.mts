@@ -17,7 +17,7 @@ console.log(
     code,
     diffWith,
     lang: "tsx",
-    theme: "catppuccin-frappe",
+    theme: "everforest-dark",
     collapseUnchanged: {
       padding: 3,
       separator: (n) => `\n··· ${n} unchanged ···\n`,
