@@ -1,0 +1,74 @@
+.demoCard {
+  overflow: hidden;
+}
+
+.demoToolbar {
+  border-bottom: 1px solid var(--gray-6);
+  flex-wrap: wrap;
+}
+
+.demoContainer {
+  display: grid;
+  grid-template:
+    "output output" 1fr
+    "left right" 1fr / 1fr 1fr;
+  gap: 12px;
+  padding: 16px;
+  height: 600px;
+}
+
+.editorLeft {
+  grid-area: left;
+}
+
+.editorRight {
+  grid-area: right;
+}
+
+.terminalContainer {
+  grid-area: output;
+}
+
+.editorLeft,
+.editorRight,
+.terminalContainer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+
+  textarea {
+    flex: 1 1 0;
+    border-radius: 8px;
+    border: 1px solid var(--gray-6);
+    background: var(--gray-2);
+    color: var(--gray-12);
+    padding: 8px;
+    font-family: "Google Sans Code", monospace;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: auto;
+    min-height: 0;
+    box-sizing: border-box;
+    resize: none;
+
+    &:focus {
+      outline: none;
+      border-color: var(--accent-8);
+    }
+  }
+}
+
+.terminalContainer {
+  .terminal {
+    flex: 1 1 0;
+    border-radius: 8px;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  .domRenderer {
+    flex: 1 1 0;
+    border-radius: 8px;
+    min-height: 0;
+  }
+}
