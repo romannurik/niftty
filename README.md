@@ -18,6 +18,10 @@ Known limitations:
 
 - Requires a modern, `xterm-256color`-friendly shell.
 
+# Live demo
+
+👉 [**Try the live demo**](https://romannurik.github.io/niftty/).
+
 # Installation
 
 Grab it with your favorite package manager:
