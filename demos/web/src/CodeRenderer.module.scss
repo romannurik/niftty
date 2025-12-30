@@ -1,0 +1,44 @@
+.container {
+  font-family: "Google Sans Code", monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 8px;
+  overflow: auto;
+  height: 100%;
+  box-sizing: border-box;
+  white-space: pre;
+}
+
+.line {
+  display: flex;
+  min-height: 1.4em;
+}
+
+.lineNumber {
+  flex: 0 0 auto;
+  padding-right: 1em;
+  user-select: none;
+  white-space: pre;
+}
+
+.lineContent {
+  flex: 1 1 auto;
+  white-space: pre;
+}
+
+.upcoming {
+  opacity: 0.4;
+}
+
+.collapsedSection {
+  padding: 4px 0;
+  cursor: pointer;
+  user-select: none;
+  text-align: center;
+  opacity: 0.7;
+  transition: opacity 0.15s ease;
+
+  &:hover {
+    opacity: 1;
+  }
+}

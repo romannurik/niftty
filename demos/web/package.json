@@ -8,6 +8,8 @@
     "build": "tsc && vite build"
   },
   "dependencies": {
+    "@radix-ui/react-icons": "^1.3.2",
+    "@radix-ui/themes": "^3.2.1",
     "@xterm/addon-fit": "^0.11.0-beta",
     "@xterm/xterm": "^5.6.0-beta",
     "chalk": "^5.6.2",

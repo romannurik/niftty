@@ -1,67 +1,50 @@
-.container {
+.page {
+  min-height: 100vh;
+}
+
+.hero {
+  padding-top: 80px;
+  padding-bottom: 40px;
+}
+
+.installCode {
+  padding: 12px 24px;
+  font-size: 16px;
+}
+
+.codeExample {
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--gray-2);
+}
+
+.featuresGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.featureCard {
+  padding: 20px;
+}
+
+.demoCard {
+  overflow: hidden;
+}
+
+.demoToolbar {
+  border-bottom: 1px solid var(--gray-6);
+  flex-wrap: wrap;
+}
+
+.demoContainer {
   display: grid;
   grid-template:
-    'toolbar toolbar toolbar' auto
-    'left term right' 1fr / 1fr 2fr 1fr;
-  flex-direction: row;
+    "output output" 1fr
+    "left right" 1fr / 1fr 1fr;
   gap: 12px;
-  padding: 20px;
-  min-height: 100vh;
-  box-sizing: border-box;
-}
-
-.editorLeft,
-.editorRight,
-.terminalContainer {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-
-  h2 {
-    margin: 0;
-    flex: 0 0 auto;
-  }
-}
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-
-  h1 {
-    margin: 0;
-  }
-
-  > * {
-    flex: 0 0 auto;
-  }
-}
-
-.terminalContainer {
-  grid-area: term;
-
-  .terminal {
-    flex: 1 1 0;
-    border-radius: 8px;
-    overflow: hidden;
-  }
-}
-
-.editorLeft,
-.editorRight {
-  textarea {
-    flex: 1 1 0;
-    border-radius: 8px;
-    border: 0;
-    padding: 4px;
-    font-size: 13px;
-    font-family: Google Sans Code;
-    font-size: 12px;
-    white-space: nowrap;
-    overflow: scroll;
-    min-height: 0;
-    box-sizing: border-box;
-  }
+  padding: 16px;
+  height: 600px;
 }
 
 .editorLeft {
@@ -70,4 +53,57 @@
 
 .editorRight {
   grid-area: right;
+}
+
+.terminalContainer {
+  grid-area: output;
+}
+
+.editorLeft,
+.editorRight,
+.terminalContainer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+
+  textarea {
+    flex: 1 1 0;
+    border-radius: 8px;
+    border: 1px solid var(--gray-6);
+    background: var(--gray-2);
+    color: var(--gray-12);
+    padding: 8px;
+    font-family: "Google Sans Code", monospace;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: auto;
+    min-height: 0;
+    box-sizing: border-box;
+    resize: none;
+
+    &:focus {
+      outline: none;
+      border-color: var(--accent-8);
+    }
+  }
+}
+
+.terminalContainer {
+  .terminal {
+    flex: 1 1 0;
+    border-radius: 8px;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  .domRenderer {
+    flex: 1 1 0;
+    border-radius: 8px;
+    min-height: 0;
+  }
+}
+
+.footer {
+  border-top: 1px solid var(--gray-4);
+  margin-top: 40px;
 }

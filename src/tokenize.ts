@@ -332,13 +332,22 @@ export async function tokenize({
     ? highlighter.codeToTokens(from, { theme, lang: resolvedLang })
     : result;
 
-  for (let i = 1; i < lineInfos.length; i++) {
-    let lineInfo = (lineInfos[i] || {}) as Partial<LineInfo>;
+  const assignTokens = (lineInfo: Partial<LineInfo>) => {
     let { type, oldLineNumber, newLineNumber } = lineInfo;
     lineInfo.tokens =
       (type === "removed" || type === "upcoming"
         ? beforeResult.tokens[(oldLineNumber || 0) - 1]!
         : result.tokens[(newLineNumber || 0) - 1]!) || [];
+  };
+
+  for (let i = 1; i < lineInfos.length; i++) {
+    let lineInfo = (lineInfos[i] || {}) as Partial<LineInfo>;
+    assignTokens(lineInfo);
+    if (lineInfo.collapse) {
+      for (let collapsedLine of lineInfo.collapse) {
+        assignTokens(collapsedLine);
+      }
+    }
   }
 
   // Build theme colors
