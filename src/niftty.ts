@@ -101,6 +101,10 @@ export type RenderToken = {
   content: string;
   color?: string;
   fontStyle?: "italic" | "bold" | "underline";
+  /**
+   * Whether this token represents changed text (in a modified line).
+   */
+  marked?: boolean;
 };
 
 /**
@@ -111,11 +115,6 @@ export type RenderLine = {
   oldLineNumber?: number;
   newLineNumber?: number;
   tokens: RenderToken[];
-  /**
-   * Sparse array of per-character modification marks. `true` at index `i` means
-   * the character at position `i` in the line is a changed character.
-   */
-  marks?: (true | undefined)[];
   /**
    * Special text to show instead of tokens, e.g., "(added newline at end of file)".
    */
@@ -222,8 +221,7 @@ export async function niftty(options: Options): Promise<string> {
     }
 
     // It's a RenderLine
-    let { type, oldLineNumber, newLineNumber, marks, tokens, specialText } =
-      item;
+    let { type, oldLineNumber, newLineNumber, tokens, specialText } = item;
     oldLineNumber ||= 0;
     newLineNumber ||= 0;
 
@@ -286,35 +284,9 @@ export async function niftty(options: Options): Promise<string> {
       col = specialText.length;
     } else {
       for (let token of tokens) {
-        let tokenChalk = lineChalk.hex(token.color || colors.foreground);
-        let markedTokenChalk = markedTokenLineChalk.hex(
-          token.color || colors.foreground
-        );
-        let spanStart = 0;
-        let inMark = false;
-        // iterate the token character-by-character to see if any characters are marked
-        for (let c = 0; c < token.content.length; c++) {
-          if (marks?.[col + c] && !inMark) {
-            // finish unmarked span
-            spanStart !== c &&
-              out.push(tokenChalk(token.content.substring(spanStart, c)));
-            // start new span
-            inMark = true;
-            spanStart = c;
-          } else if (!marks?.[col + c] && inMark) {
-            // finish marked span
-            spanStart !== c &&
-              out.push(markedTokenChalk(token.content.substring(spanStart, c)));
-            // start new span
-            inMark = false;
-            spanStart = c;
-          }
-        }
-        out.push(
-          (inMark ? markedTokenChalk : tokenChalk)(
-            token.content.substring(spanStart)
-          )
-        );
+        let bgChalk = token.marked ? markedTokenLineChalk : lineChalk;
+        let tokenChalk = bgChalk.hex(token.color || colors.foreground);
+        out.push(tokenChalk(token.content));
         col += token.content.length;
       }
     }
@@ -715,16 +687,42 @@ function convertLineInfoToRenderLine(
   lineInfo: LineInfo,
   defaultFg?: string
 ): RenderLine {
-  let tokens: RenderToken[] = (lineInfo.tokens || []).map((t) => {
-    let token: RenderToken = { content: t.content };
-    if (t.color) token.color = t.color;
+  let marks = lineInfo.marks;
+  let tokens: RenderToken[] = [];
+  let col = 0;
+
+  for (let t of lineInfo.tokens || []) {
+    let baseToken: Omit<RenderToken, "content" | "marked"> = {};
+    if (t.color) baseToken.color = t.color;
     if (t.fontStyle) {
-      if (t.fontStyle & 1) token.fontStyle = "italic";
-      else if (t.fontStyle & 2) token.fontStyle = "bold";
-      else if (t.fontStyle & 4) token.fontStyle = "underline";
+      if (t.fontStyle & 1) baseToken.fontStyle = "italic";
+      else if (t.fontStyle & 2) baseToken.fontStyle = "bold";
+      else if (t.fontStyle & 4) baseToken.fontStyle = "underline";
     }
-    return token;
-  });
+
+    if (!marks) {
+      tokens.push({ ...baseToken, content: t.content });
+    } else {
+      let spanStart = 0;
+      let inMark = !!marks[col];
+      for (let c = 0; c <= t.content.length; c++) {
+        let isMarked = c < t.content.length ? !!marks[col + c] : !inMark;
+        if (isMarked !== inMark || c === t.content.length) {
+          if (c > spanStart) {
+            let token: RenderToken = {
+              ...baseToken,
+              content: t.content.substring(spanStart, c),
+            };
+            if (inMark) token.marked = true;
+            tokens.push(token);
+          }
+          inMark = isMarked;
+          spanStart = c;
+        }
+      }
+    }
+    col += t.content.length;
+  }
 
   let result: RenderLine = {
     type: lineInfo.type as LineType,
@@ -736,9 +734,6 @@ function convertLineInfoToRenderLine(
   }
   if (lineInfo.newLineNumber !== undefined) {
     result.newLineNumber = lineInfo.newLineNumber;
-  }
-  if (lineInfo.marks) {
-    result.marks = lineInfo.marks;
   }
   if (lineInfo.specialText) {
     result.specialText = lineInfo.specialText;
