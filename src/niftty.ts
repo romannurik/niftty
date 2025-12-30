@@ -85,6 +85,91 @@ type LineInfo = {
   specialText?: string; // special text to show instead of tokens, e.g. "added newline"
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Public types for custom rendering
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The type of a line in the rendered output.
+ */
+export type LineType = "default" | "added" | "removed" | "current" | "upcoming";
+
+/**
+ * A token with syntax highlighting information.
+ */
+export type RenderToken = {
+  content: string;
+  color?: string;
+  fontStyle?: "italic" | "bold" | "underline";
+};
+
+/**
+ * A single line in the render output.
+ */
+export type RenderLine = {
+  type: LineType;
+  oldLineNumber?: number;
+  newLineNumber?: number;
+  tokens: RenderToken[];
+  /**
+   * Sparse array of per-character modification marks. `true` at index `i` means
+   * the character at position `i` in the line is a changed character.
+   */
+  marks?: (true | undefined)[];
+  /**
+   * Special text to show instead of tokens, e.g., "(added newline at end of file)".
+   */
+  specialText?: string;
+};
+
+/**
+ * A collapsed section placeholder representing hidden unchanged lines.
+ */
+export type RenderCollapsedSection = {
+  type: "collapsed";
+  collapsedCount: number;
+  lines: RenderLine[];
+  /**
+   * The separator text to display for this collapsed section.
+   */
+  separatorText: string;
+};
+
+/**
+ * A line or collapsed section in the render output.
+ */
+export type RenderItem = RenderLine | RenderCollapsedSection;
+
+/**
+ * Theme colors extracted for custom renderers.
+ */
+export type ThemeColors = {
+  foreground: string;
+  background: string;
+  insertedLineBackground: string;
+  insertedTextBackground: string;
+  removedLineBackground: string;
+  removedTextBackground: string;
+  lineNumberForeground: string;
+  /**
+   * Background color for the "current" line in streaming mode.
+   */
+  currentLineBackground: string;
+};
+
+/**
+ * The complete tokenized code data structure for custom rendering.
+ */
+export type TokenizedCode = {
+  items: RenderItem[];
+  colors: ThemeColors;
+  lineDigits: number;
+  maxCols: number;
+  isDiff: boolean;
+  isStreaming: boolean;
+  currentLineIndex?: number;
+};
+
 const DEFAULT_COLLAPSE_PADDING = 3;
 const DEFAULT_COLLAPSE_SEPARATOR = (n: number) => `--- ${n} unchanged ---`;
 const DEFAULT_STREAMING_WINDOW = 20; // N lines centered on the current one
@@ -97,84 +182,35 @@ const DEFAULT_REMOVE_BG = "#df404733";
  * can be written to `stdout`, e.g. using `process.stdout.write()`.
  */
 export async function niftty(options: Options): Promise<string> {
-  let out: string[] = []; // terminal output
-
   let { streaming, lineNumbers } = options;
 
-  // Prepare everything for rendering, producing a render context
-  let {
-    lineInfos,
-    isDiff,
-    collapseConfig,
-    theme,
-    lineDigits,
-    maxCols,
-    currentLineNumber,
-    colorDefaultBackground: bg,
-    colorDefaultForeground: fg,
-  } = await prepareRender(options);
+  // Tokenize the code
+  let { items, colors, lineDigits, maxCols, isDiff, currentLineIndex } =
+    await tokenize(options);
 
-  // Render out the render context
-  for (let i = 1; i < lineInfos.length; i++) {
-    let lineInfo = (lineInfos[i] || {}) as Partial<LineInfo>;
-    let { type, oldLineNumber, newLineNumber, marks, tokens } = lineInfo;
-    oldLineNumber ||= 0;
-    newLineNumber ||= 0;
-    tokens ||= [];
+  // Prepare set of chalks to paint with (from pre-computed colors)
+  let normalBgChalk = chalk.bgHex(colors.background);
+  let insertedLineBgChalk = chalk.bgHex(colors.insertedLineBackground);
+  let insertedTextBgChalk = chalk.bgHex(colors.insertedTextBackground);
+  let removedLineBgChalk = chalk.bgHex(colors.removedLineBackground);
+  let removedTextBgChalk = chalk.bgHex(colors.removedTextBackground);
+  let currentLineBgChalk = chalk.bgHex(colors.currentLineBackground);
 
-    // prepare set of chalks to paint with
-    let normalBgChalk = chalk.bgHex(flattenColors(bg));
-    let insertedLineBgChalk = chalk.bgHex(
-      flattenColors(
-        theme.colors?.["diffEditor.insertedLineBackground"] ||
-          DEFAULT_INSERT_BG,
-        bg
-      )
-    );
+  let out: string[] = [];
 
-    let insertedTextBgChalk = chalk.bgHex(
-      flattenColors(
-        theme.colors?.["diffEditor.insertedTextBackground"] ||
-          DEFAULT_INSERT_BG,
-        theme.colors?.["diffEditor.insertedLineBackground"] ||
-          DEFAULT_INSERT_BG,
-        bg
-      )
-    );
-    let removedLineBgCheck = chalk.bgHex(
-      flattenColors(
-        theme.colors?.["diffEditor.removedLineBackground"] || DEFAULT_REMOVE_BG,
-        bg
-      )
-    );
-    let removedTextBgChalk = chalk.bgHex(
-      flattenColors(
-        theme.colors?.["diffEditor.removedTextBackground"] || DEFAULT_REMOVE_BG,
-        theme.colors?.["diffEditor.removedLineBackground"] || DEFAULT_REMOVE_BG,
-        bg
-      )
-    );
-    let lineChalk = normalBgChalk;
-    let markedTokenLineChalk = lineChalk;
-    let annotationChalk = lineChalk.hex(
-      flattenColors(
-        theme.colors?.["editorLineNumber.foreground"] ||
-          tinycolor.mix(bg || "#000", fg || "#fff", 50).toHexString(),
-        bg
-      )
-    );
-
-    // if this is a collapsed span, render the separator
-    if (collapseConfig && lineInfo.collapse) {
+  // Render out each item
+  for (let item of items) {
+    // Handle collapsed sections
+    if (item.type === "collapsed") {
       let prefix = "  "; // for the annotation
       if (lineNumbers === "both") {
         prefix += "".padEnd(2 * (lineDigits + 1), " ") + " ";
       } else if (lineNumbers) {
         prefix += "".padEnd(lineDigits + 1, " ") + " ";
       }
+      let annotationChalk = normalBgChalk.hex(colors.lineNumberForeground);
       out.push(
-        collapseConfig
-          .separator(lineInfo.collapse.length)
+        item.separatorText
           .split(/\n/g)
           .map((sepLine) =>
             annotationChalk(prefix + sepLine.padEnd(maxCols, " ") + "\n")
@@ -185,7 +221,16 @@ export async function niftty(options: Options): Promise<string> {
       continue;
     }
 
-    // prepare prefixes
+    // It's a RenderLine
+    let { type, oldLineNumber, newLineNumber, marks, tokens, specialText } =
+      item;
+    oldLineNumber ||= 0;
+    newLineNumber ||= 0;
+
+    let lineChalk = normalBgChalk;
+    let markedTokenLineChalk = lineChalk;
+
+    // Prepare prefixes
     let prefixLineNums: number[] = [];
     let prefixAnnotation = "";
     if (isDiff) {
@@ -203,17 +248,12 @@ export async function niftty(options: Options): Promise<string> {
         else if (lineNumbers) prefixLineNums[0] = 0;
         prefixAnnotation = "+ ";
       } else if (type === "removed") {
-        lineChalk = removedLineBgCheck;
+        lineChalk = removedLineBgChalk;
         markedTokenLineChalk = removedTextBgChalk;
         if (lineNumbers === "both") prefixLineNums[1] = 0;
         prefixAnnotation = "- ";
       } else if (type === "current") {
-        lineChalk = markedTokenLineChalk = chalk.bgHex(
-          flattenColors(
-            tinycolor.mix(bg || "#000", fg || "#fff", 20).toHexString(),
-            bg
-          )
-        );
+        lineChalk = markedTokenLineChalk = currentLineBgChalk;
         prefixAnnotation = "▶ ";
       } else if (type === "upcoming") {
         if (lineNumbers === "both") prefixLineNums[1] = 0;
@@ -222,16 +262,9 @@ export async function niftty(options: Options): Promise<string> {
       prefixLineNums = [newLineNumber];
     }
 
-    // update foreground based on the new background
-    annotationChalk = lineChalk.hex(
-      flattenColors(
-        theme.colors?.["editorLineNumber.foreground"] ||
-          tinycolor.mix(bg || "#000", fg || "#fff", 50).toHexString(),
-        bg
-      )
-    );
+    let annotationChalk = lineChalk.hex(colors.lineNumberForeground);
 
-    // render line prefixes
+    // Render line prefixes
     out.push(
       annotationChalk(
         " " +
@@ -248,14 +281,14 @@ export async function niftty(options: Options): Promise<string> {
       let fullLine = tokens.map((t) => t.content).join("");
       out.push(annotationChalk(fullLine));
       col = fullLine.length;
-    } else if (lineInfo.specialText) {
-      out.push(annotationChalk(lineInfo.specialText));
-      col = lineInfo.specialText.length;
+    } else if (specialText) {
+      out.push(annotationChalk(specialText));
+      col = specialText.length;
     } else {
       for (let token of tokens) {
-        let tokenChalk = lineChalk.hex(token.color || fg || "#fff");
+        let tokenChalk = lineChalk.hex(token.color || colors.foreground);
         let markedTokenChalk = markedTokenLineChalk.hex(
-          token.color || fg || "#fff"
+          token.color || colors.foreground
         );
         let spanStart = 0;
         let inMark = false;
@@ -291,13 +324,13 @@ export async function niftty(options: Options): Promise<string> {
   }
 
   // if streaming, only return the streaming window (max. # of lines)
-  if (streaming) {
+  if (streaming && currentLineIndex !== undefined) {
     let window =
       typeof streaming === "number" ? streaming : DEFAULT_STREAMING_WINDOW;
     let lines = out.join("").split(/\n/g);
     let start = 0;
-    if (currentLineNumber > Math.floor(window / 2)) {
-      start = currentLineNumber - Math.floor(window / 2);
+    if (currentLineIndex > Math.floor(window / 2)) {
+      start = currentLineIndex - Math.floor(window / 2);
     }
     if (start + window > lines.length) {
       start = Math.max(0, lines.length - window - 1);
@@ -313,12 +346,12 @@ export async function niftty(options: Options): Promise<string> {
 }
 
 /**
- * Does all the preparation work for rendering, including diffing, collapsing unchanged lines,
- * actual syntax highlighting (tokenizing + applying theme), and marking up modified lines.
- *
- * @returns Context needed for actual rendering.
+ * Prepares code/diff for rendering, returning an intermediate data structure
+ * that can be used for custom rendering (HTML, React, etc.). Does all the prep work for
+ * rendering, including diffing, collapsing unchanged lines, actual syntax highlighting
+ * (tokenizing + applying theme), and marking up modified lines.
  */
-async function prepareRender({
+export async function tokenize({
   code,
   diffWith,
   collapseUnchanged,
@@ -327,7 +360,7 @@ async function prepareRender({
   streaming,
   lang,
   highlighter,
-}: Options) {
+}: Options): Promise<TokenizedCode> {
   // load shiki here to support CJS
   const shiki = await import("shiki");
 
@@ -346,6 +379,7 @@ async function prepareRender({
 
   // prep vars
   let isDiff = diffWith !== undefined;
+  let isStreaming = !!streaming;
   let from = diffWith || "";
   let to = code;
 
@@ -590,12 +624,9 @@ async function prepareRender({
   }
 
   // actually do syntax highlighting and assign line tokens for each line
-  let result = highlighter.codeToTokens(to, {
-    theme,
-    lang: resolvedLang,
-  });
-  let colorDefaultForeground = result.fg || theme.colors?.["editorForeground"];
-  let colorDefaultBackground = result.bg || theme.colors?.["editorBackground"];
+  let result = highlighter.codeToTokens(to, { theme, lang: resolvedLang });
+  let fg = result.fg || theme.colors?.["editorForeground"];
+  let bg = result.bg || theme.colors?.["editorBackground"];
   let beforeResult = isDiff
     ? highlighter.codeToTokens(from, { theme, lang: resolvedLang })
     : result;
@@ -609,23 +640,111 @@ async function prepareRender({
         : result.tokens[(newLineNumber || 0) - 1]!) || [];
   }
 
-  // return context for actual rendering
-  return {
-    from,
-    to,
-    resolvedLang,
-    theme,
-    highlighter,
-    lineInfos,
-    isDiff,
-    collapseConfig,
-    maxLines,
-    maxCols,
-    lineDigits,
-    currentLineNumber,
-    colorDefaultForeground,
-    colorDefaultBackground,
+  // Build theme colors
+  let colors: ThemeColors = {
+    foreground: flattenColors(fg),
+    background: flattenColors(bg),
+    insertedLineBackground: flattenColors(
+      theme.colors?.["diffEditor.insertedLineBackground"] || DEFAULT_INSERT_BG,
+      bg
+    ),
+    insertedTextBackground: flattenColors(
+      theme.colors?.["diffEditor.insertedTextBackground"] || DEFAULT_INSERT_BG,
+      theme.colors?.["diffEditor.insertedLineBackground"] || DEFAULT_INSERT_BG,
+      bg
+    ),
+    removedLineBackground: flattenColors(
+      theme.colors?.["diffEditor.removedLineBackground"] || DEFAULT_REMOVE_BG,
+      bg
+    ),
+    removedTextBackground: flattenColors(
+      theme.colors?.["diffEditor.removedTextBackground"] || DEFAULT_REMOVE_BG,
+      theme.colors?.["diffEditor.removedLineBackground"] || DEFAULT_REMOVE_BG,
+      bg
+    ),
+    lineNumberForeground: flattenColors(
+      theme.colors?.["editorLineNumber.foreground"] ||
+        tinycolor.mix(bg || "#000", fg || "#fff", 50).toHexString(),
+      bg
+    ),
+    currentLineBackground: flattenColors(
+      tinycolor.mix(bg || "#000", fg || "#fff", 20).toHexString(),
+      bg
+    ),
   };
+
+  // Convert LineInfo[] to RenderItem[]
+  let items: RenderItem[] = [];
+  let currentLineIndex: number | undefined;
+
+  for (let i = 1; i < lineInfos.length; i++) {
+    let lineInfo = (lineInfos[i] || {}) as Partial<LineInfo>;
+
+    if (collapseConfig && lineInfo.collapse) {
+      let collapsedLines: RenderLine[] = lineInfo.collapse.map((li) =>
+        convertLineInfoToRenderLine(li, fg)
+      );
+      items.push({
+        type: "collapsed",
+        collapsedCount: lineInfo.collapse.length,
+        lines: collapsedLines,
+        separatorText: collapseConfig.separator(lineInfo.collapse.length),
+      });
+      continue;
+    }
+
+    let renderLine = convertLineInfoToRenderLine(lineInfo as LineInfo, fg);
+    if (renderLine.type === "current") {
+      currentLineIndex = items.length;
+    }
+    items.push(renderLine);
+  }
+
+  return {
+    items,
+    colors,
+    lineDigits,
+    maxCols,
+    isDiff,
+    isStreaming,
+    currentLineIndex,
+  };
+}
+
+function convertLineInfoToRenderLine(
+  lineInfo: LineInfo,
+  defaultFg?: string
+): RenderLine {
+  let tokens: RenderToken[] = (lineInfo.tokens || []).map((t) => {
+    let token: RenderToken = { content: t.content };
+    if (t.color) token.color = t.color;
+    if (t.fontStyle) {
+      if (t.fontStyle & 1) token.fontStyle = "italic";
+      else if (t.fontStyle & 2) token.fontStyle = "bold";
+      else if (t.fontStyle & 4) token.fontStyle = "underline";
+    }
+    return token;
+  });
+
+  let result: RenderLine = {
+    type: lineInfo.type as LineType,
+    tokens,
+  };
+
+  if (lineInfo.oldLineNumber !== undefined) {
+    result.oldLineNumber = lineInfo.oldLineNumber;
+  }
+  if (lineInfo.newLineNumber !== undefined) {
+    result.newLineNumber = lineInfo.newLineNumber;
+  }
+  if (lineInfo.marks) {
+    result.marks = lineInfo.marks;
+  }
+  if (lineInfo.specialText) {
+    result.specialText = lineInfo.specialText;
+  }
+
+  return result;
 }
 
 function flattenColors(...colors: Array<string | undefined>) {
