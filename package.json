@@ -1,6 +1,6 @@
 {
   "name": "niftty",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "description": "A code and code-diff prettyprinter for the terminal, powered by Shiki",
   "keywords": [
