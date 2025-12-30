@@ -4,65 +4,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import chalk from "chalk";
 import { diffLines, diffWordsWithSpace } from "diff";
-import type * as shiki from "shiki"; // don't load shiki as a module globally to support CJS
+import type * as shiki from "shiki";
 import tinycolor from "tinycolor2";
 
-type CollapseConfig = {
-  padding: number;
-  separator: (numCollapsedLines: number) => string;
-};
-
-/**
- * Options for rendering code snippet.
- */
-type Options = {
-  /**
-   * The code to render.
-   */
-  code: string;
-  /**
-   * If specified, the code to diff against, for showing additions and removals.
-   */
-  diffWith?: string;
-  /**
-   * The language to use for syntax highlighting. If not provided, will be automatically detected
-   * based on the file path.
-   */
-  lang?: shiki.BundledLanguage | shiki.SpecialLanguage;
-  /**
-   * The file path of the code, used to help with language detection if `lang` is not specified.
-   */
-  filePath?: string;
-  /**
-   * The named syntax highlighting theme or VSCode-compatible theme object.
-   */
-  theme: shiki.ThemeRegistration | shiki.BundledTheme;
-  /**
-   * When showing diffs, whether to collapse unchanged lines. If an object, configures the collapse
-   * behavior.
-   */
-  collapseUnchanged?: boolean | Partial<CollapseConfig>;
-  /**
-   * Whether to render in "streaming" mode, typically used for showing code being generated or
-   * edited (by regenerating with changes) by an LLM. In this mode, the last line is treated as the
-   * "current" line being edited, and any remaining lines in the "after" code that haven't been
-   * reached yet are dimmed.
-   *
-   * If this is a number, customizes the streaming window size, in number of lines.
-   */
-  streaming?: boolean | number;
-  /**
-   * If specified, the `shiki` highlighter instance to use. If not provided, a new instance will be
-   * created. Use this if calling `niftty` in rapid succession.
-   */
-  highlighter?: shiki.Highlighter;
-  /**
-   * Whether to show line numbers. If `"both"`, shows both old and new line numbers.
-   */
-  lineNumbers?: boolean | "both";
-};
+import type {
+  CollapseConfig,
+  LineType,
+  Options,
+  RenderItem,
+  RenderLine,
+  RenderToken,
+  ThemeColors,
+  TokenizedCode,
+} from "./types";
 
 type LineInfo = {
   type:
@@ -85,237 +40,11 @@ type LineInfo = {
   specialText?: string; // special text to show instead of tokens, e.g. "added newline"
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Public types for custom rendering
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * The type of a line in the rendered output.
- */
-export type LineType = "default" | "added" | "removed" | "current" | "upcoming";
-
-/**
- * A token with syntax highlighting information.
- */
-export type RenderToken = {
-  content: string;
-  color?: string;
-  fontStyle?: "italic" | "bold" | "underline";
-  /**
-   * Whether this token represents changed text (in a modified line).
-   */
-  marked?: boolean;
-};
-
-/**
- * A single line in the render output.
- */
-export type RenderLine = {
-  type: LineType;
-  oldLineNumber?: number;
-  newLineNumber?: number;
-  tokens: RenderToken[];
-  /**
-   * Special text to show instead of tokens, e.g., "(added newline at end of file)".
-   */
-  specialText?: string;
-};
-
-/**
- * A collapsed section placeholder representing hidden unchanged lines.
- */
-export type RenderCollapsedSection = {
-  type: "collapsed";
-  collapsedCount: number;
-  lines: RenderLine[];
-  /**
-   * The separator text to display for this collapsed section.
-   */
-  separatorText: string;
-};
-
-/**
- * A line or collapsed section in the render output.
- */
-export type RenderItem = RenderLine | RenderCollapsedSection;
-
-/**
- * Theme colors extracted for custom renderers.
- */
-export type ThemeColors = {
-  foreground: string;
-  background: string;
-  insertedLineBackground: string;
-  insertedTextBackground: string;
-  removedLineBackground: string;
-  removedTextBackground: string;
-  lineNumberForeground: string;
-  /**
-   * Background color for the "current" line in streaming mode.
-   */
-  currentLineBackground: string;
-};
-
-/**
- * The complete tokenized code data structure for custom rendering.
- */
-export type TokenizedCode = {
-  items: RenderItem[];
-  colors: ThemeColors;
-  lineDigits: number;
-  maxCols: number;
-  isDiff: boolean;
-  isStreaming: boolean;
-  currentLineIndex?: number;
-};
-
 const DEFAULT_COLLAPSE_PADDING = 3;
 const DEFAULT_COLLAPSE_SEPARATOR = (n: number) => `--- ${n} unchanged ---`;
-const DEFAULT_STREAMING_WINDOW = 20; // N lines centered on the current one
 
 const DEFAULT_INSERT_BG = "#17975f33";
 const DEFAULT_REMOVE_BG = "#df404733";
-
-/**
- * Renders a code snippet using [shiki](https://shiki.style/), into an ANSI-encoded string that
- * can be written to `stdout`, e.g. using `process.stdout.write()`.
- */
-export async function niftty(options: Options): Promise<string> {
-  let { streaming, lineNumbers } = options;
-
-  // Tokenize the code
-  let { items, colors, lineDigits, maxCols, isDiff, currentLineIndex } =
-    await tokenize(options);
-
-  // Prepare set of chalks to paint with (from pre-computed colors)
-  let normalBgChalk = chalk.bgHex(colors.background);
-  let insertedLineBgChalk = chalk.bgHex(colors.insertedLineBackground);
-  let insertedTextBgChalk = chalk.bgHex(colors.insertedTextBackground);
-  let removedLineBgChalk = chalk.bgHex(colors.removedLineBackground);
-  let removedTextBgChalk = chalk.bgHex(colors.removedTextBackground);
-  let currentLineBgChalk = chalk.bgHex(colors.currentLineBackground);
-
-  let out: string[] = [];
-
-  // Render out each item
-  for (let item of items) {
-    // Handle collapsed sections
-    if (item.type === "collapsed") {
-      let prefix = "  "; // for the annotation
-      if (lineNumbers === "both") {
-        prefix += "".padEnd(2 * (lineDigits + 1), " ") + " ";
-      } else if (lineNumbers) {
-        prefix += "".padEnd(lineDigits + 1, " ") + " ";
-      }
-      let annotationChalk = normalBgChalk.hex(colors.lineNumberForeground);
-      out.push(
-        item.separatorText
-          .split(/\n/g)
-          .map((sepLine) =>
-            annotationChalk(prefix + sepLine.padEnd(maxCols, " ") + "\n")
-          )
-          .join("")
-      );
-      // skip rendering
-      continue;
-    }
-
-    // It's a RenderLine
-    let { type, oldLineNumber, newLineNumber, tokens, specialText } = item;
-    oldLineNumber ||= 0;
-    newLineNumber ||= 0;
-
-    let lineChalk = normalBgChalk;
-    let markedTokenLineChalk = lineChalk;
-
-    // Prepare prefixes
-    let prefixLineNums: number[] = [];
-    let prefixAnnotation = "";
-    if (isDiff) {
-      prefixAnnotation = "  ";
-      // prefix line with marking
-      if (lineNumbers === true) {
-        prefixLineNums = [streaming ? newLineNumber : oldLineNumber];
-      } else if (lineNumbers === "both") {
-        prefixLineNums = [oldLineNumber, newLineNumber];
-      }
-      if (type === "added") {
-        lineChalk = insertedLineBgChalk;
-        markedTokenLineChalk = insertedTextBgChalk;
-        if (lineNumbers === "both") prefixLineNums[0] = 0;
-        else if (lineNumbers) prefixLineNums[0] = 0;
-        prefixAnnotation = "+ ";
-      } else if (type === "removed") {
-        lineChalk = removedLineBgChalk;
-        markedTokenLineChalk = removedTextBgChalk;
-        if (lineNumbers === "both") prefixLineNums[1] = 0;
-        prefixAnnotation = "- ";
-      } else if (type === "current") {
-        lineChalk = markedTokenLineChalk = currentLineBgChalk;
-        prefixAnnotation = "▶ ";
-      } else if (type === "upcoming") {
-        if (lineNumbers === "both") prefixLineNums[1] = 0;
-      }
-    } else if (lineNumbers) {
-      prefixLineNums = [newLineNumber];
-    }
-
-    let annotationChalk = lineChalk.hex(colors.lineNumberForeground);
-
-    // Render line prefixes
-    out.push(
-      annotationChalk(
-        " " +
-          prefixLineNums
-            .map((n) => String(n || "").padEnd(lineDigits, " ") + " ")
-            .join("") +
-          prefixAnnotation
-      )
-    );
-
-    // render the actual line, token by token, including marks (changed characters in a modified line)
-    let col = 0;
-    if (type === "upcoming") {
-      let fullLine = tokens.map((t) => t.content).join("");
-      out.push(annotationChalk(fullLine));
-      col = fullLine.length;
-    } else if (specialText) {
-      out.push(annotationChalk(specialText));
-      col = specialText.length;
-    } else {
-      for (let token of tokens) {
-        let bgChalk = token.marked ? markedTokenLineChalk : lineChalk;
-        let tokenChalk = bgChalk.hex(token.color || colors.foreground);
-        out.push(tokenChalk(token.content));
-        col += token.content.length;
-      }
-    }
-
-    // render out the rest of the line
-    out.push(lineChalk(" ".repeat(Math.max(0, maxCols - col))) + "\n");
-  }
-
-  // if streaming, only return the streaming window (max. # of lines)
-  if (streaming && currentLineIndex !== undefined) {
-    let window =
-      typeof streaming === "number" ? streaming : DEFAULT_STREAMING_WINDOW;
-    let lines = out.join("").split(/\n/g);
-    let start = 0;
-    if (currentLineIndex > Math.floor(window / 2)) {
-      start = currentLineIndex - Math.floor(window / 2);
-    }
-    if (start + window > lines.length) {
-      start = Math.max(0, lines.length - window - 1);
-    }
-    return (
-      lines.slice(start, start + window).join("\n") +
-      // end with newline to match non-streaming behavior
-      "\n"
-    );
-  }
-
-  return out.join("");
-}
 
 /**
  * Prepares code/diff for rendering, returning an intermediate data structure
@@ -654,7 +383,7 @@ export async function tokenize({
 
     if (collapseConfig && lineInfo.collapse) {
       let collapsedLines: RenderLine[] = lineInfo.collapse.map((li) =>
-        convertLineInfoToRenderLine(li, fg)
+        convertLineInfoToRenderLine(li)
       );
       items.push({
         type: "collapsed",
@@ -665,7 +394,7 @@ export async function tokenize({
       continue;
     }
 
-    let renderLine = convertLineInfoToRenderLine(lineInfo as LineInfo, fg);
+    let renderLine = convertLineInfoToRenderLine(lineInfo as LineInfo);
     if (renderLine.type === "current") {
       currentLineIndex = items.length;
     }
@@ -683,10 +412,7 @@ export async function tokenize({
   };
 }
 
-function convertLineInfoToRenderLine(
-  lineInfo: LineInfo,
-  defaultFg?: string
-): RenderLine {
+function convertLineInfoToRenderLine(lineInfo: LineInfo): RenderLine {
   let marks = lineInfo.marks;
   let tokens: RenderToken[] = [];
   let col = 0;
