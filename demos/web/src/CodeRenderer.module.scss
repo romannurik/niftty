@@ -1,4 +1,4 @@
-.container {
+:where(.container) {
   font-family: "Google Sans Code", monospace;
   font-size: 12px;
   line-height: 1.4;
@@ -21,6 +21,12 @@
   white-space: pre;
 }
 
+.diffIndicator {
+  flex: 0 0 auto;
+  padding-right: 0.5em;
+  user-select: none;
+}
+
 .lineContent {
   flex: 1 1 auto;
   white-space: pre;
@@ -31,14 +37,25 @@
 }
 
 .collapsedSection {
+  display: flex;
+  align-items: center;
+  gap: 1em;
   padding: 4px 0;
   cursor: pointer;
   user-select: none;
-  text-align: center;
   opacity: 0.7;
   transition: opacity 0.15s ease;
+  font-family: system-ui, sans-serif;
+  font-size: 11px;
 
   &:hover {
     opacity: 1;
   }
+}
+
+.collapsedSeparator {
+  flex: 1;
+  height: 1px;
+  background-color: currentColor;
+  opacity: 0.3;
 }

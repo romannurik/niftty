@@ -1,10 +1,8 @@
-import { FitAddon } from "@xterm/addon-fit";
-import { Terminal } from "@xterm/xterm";
 import { useEffect, useRef, useState } from "react";
 import { createHighlighter } from "shiki";
-import { niftty } from "niftty";
-import { useResizeObserver } from "./useResizeObserver";
+import { niftty, tokenize, type ThemeColors } from "niftty";
 import { CodeRenderer } from "./CodeRenderer";
+import { AnsiRenderer } from "./AnsiRenderer";
 import * as shiki from "shiki";
 import {
   Button,
@@ -16,21 +14,23 @@ import {
   Code,
   Card,
 } from "@radix-ui/themes";
-import "@xterm/xterm/css/xterm.css";
 import styles from "./InteractiveDemo.module.scss";
+
+export const DEFAULT_THEME = "houston";
 
 const DEMO_CHUNK_SIZE = [15, 30] as const;
 const DEMO_CHUNK_DELAY = [0, 30] as const;
 const STREAM_WINDOW = 15;
 
 export function InteractiveDemo() {
-  const [node, setNode] = useState<HTMLDivElement>();
   const [before, setBefore] = useState<string>("Loading...");
   const [after, setAfter] = useState<string>("Loading...");
-  const [theme, setTheme] = useState<string>("catppuccin-macchiato");
+  const [theme, setTheme] = useState<string>(DEFAULT_THEME);
   const [highlighter, setHighlighter] = useState<shiki.Highlighter>();
   const [collapse, setCollapse] = useState(true);
-  const [renderMode, setRenderMode] = useState<"terminal" | "dom">("terminal");
+  const [renderMode, setRenderMode] = useState<"ansi" | "dom">("ansi");
+  const [ansiOutput, setAnsiOutput] = useState<string>("");
+  const [themeColors, setThemeColors] = useState<ThemeColors | null>(null);
 
   const [streaming, setStreaming] = useState(false);
   const [streamingCode, setStreamingCode] = useState<string | null>(null);
@@ -38,17 +38,25 @@ export function InteractiveDemo() {
   streamingCodeRef.current = streamingCode;
 
   const lastScrollSyncRef = useRef<{
-    source: "left" | "right" | "term" | "dom";
+    source: "left" | "right" | "ansi" | "dom";
     time: number;
   }>({ source: "left", time: 0 });
 
   const editorLeft = useRef<HTMLTextAreaElement>(null);
   const editorRight = useRef<HTMLTextAreaElement>(null);
+  const ansiRendererRef = useRef<HTMLPreElement>(null);
   const domRendererRef = useRef<HTMLDivElement>(null);
-  const termRef = useRef<{
-    terminal: Terminal;
-    fitAddon: FitAddon;
-  }>();
+
+  useEffect(() => {
+    (async () => {
+      const [BEFORE, AFTER] = await Promise.all([
+        fetch("fs/before").then((res) => res.text()),
+        fetch("fs/after").then((res) => res.text()),
+      ]);
+      setBefore(BEFORE);
+      setAfter(AFTER);
+    })();
+  }, []);
 
   useEffect(() => {
     let cancel = false;
@@ -59,6 +67,15 @@ export function InteractiveDemo() {
       });
       if (cancel) return;
       setHighlighter(highlighter);
+
+      const { colors } = await tokenize({
+        highlighter,
+        code: "",
+        lang: "tsx",
+        theme: theme as shiki.ThemeRegistrationAny,
+      });
+      if (cancel) return;
+      setThemeColors(colors);
     })();
     return () => {
       cancel = true;
@@ -67,7 +84,7 @@ export function InteractiveDemo() {
 
   const syncScroll = (
     pctScroll: number,
-    source: "left" | "right" | "term" | "dom"
+    source: "left" | "right" | "ansi" | "dom"
   ) => {
     if (streamingCodeRef.current) return;
     if (
@@ -77,12 +94,11 @@ export function InteractiveDemo() {
       return;
     }
     lastScrollSyncRef.current = { source, time: Date.now() };
-    if (source !== "term") {
-      termRef.current?.terminal.scrollToLine(
-        Math.floor(
-          pctScroll * (termRef.current?.terminal.buffer.active.baseY || 0)
-        )
-      );
+    if (source !== "ansi" && ansiRendererRef.current) {
+      ansiRendererRef.current.scrollTop =
+        (ansiRendererRef.current.scrollHeight -
+          ansiRendererRef.current.clientHeight) *
+        pctScroll;
     }
     if (source !== "dom" && domRendererRef.current) {
       domRendererRef.current.scrollTop =
@@ -102,49 +118,9 @@ export function InteractiveDemo() {
     }
   };
 
-  useResizeObserver(() => termRef.current?.fitAddon.fit(), node, []);
-
-  useEffect(() => {
-    if (!node) return;
-    const terminal = new Terminal({
-      convertEol: true,
-      fontFamily: "Google Sans Code",
-      fontSize: 12,
-    });
-    const fitAddon = new FitAddon();
-    terminal.loadAddon(fitAddon);
-    terminal.open(node);
-    terminal.onScroll((top) => {
-      if (
-        lastScrollSyncRef.current.source !== "term" &&
-        lastScrollSyncRef.current.time > Date.now() - 500
-      ) {
-        return;
-      }
-      syncScroll(top / (terminal.buffer.active.baseY || 1), "term");
-    });
-    termRef.current = { terminal, fitAddon };
-    fitAddon.fit();
-
-    (async () => {
-      const [BEFORE, AFTER] = await Promise.all([
-        fetch("fs/before").then((res) => res.text()),
-        fetch("fs/after").then((res) => res.text()),
-      ]);
-      setBefore(BEFORE);
-      setAfter(AFTER);
-    })();
-
-    return () => {
-      termRef.current = undefined;
-      terminal.dispose();
-    };
-  }, [node]);
-
   useEffect(() => {
     if (!streaming || !highlighter) return;
     let cancel = false;
-    termRef.current?.terminal.clear();
     setStreamingCode("");
     (async () => {
       let length = 0;
@@ -175,9 +151,8 @@ export function InteractiveDemo() {
   }, [streaming, highlighter, after]);
 
   useEffect(() => {
-    if (!termRef.current || !highlighter) return;
+    if (!highlighter) return;
     let cancel = false;
-    let terminal = termRef.current.terminal;
     (async () => {
       if (streamingCode !== null) {
         let out = await niftty({
@@ -190,11 +165,8 @@ export function InteractiveDemo() {
           lineNumbers: true,
         });
         if (cancel) return;
-        terminal.write("\x1b[H");
-        terminal.write(
-          `${((streamingCode.length / after.length) * 100).toFixed(0)}%\n\n`
-        );
-        terminal.write(out);
+        const pct = ((streamingCode.length / after.length) * 100).toFixed(0);
+        setAnsiOutput(`${pct}%\n\n${out}`);
       } else {
         let out = await niftty({
           highlighter,
@@ -211,11 +183,7 @@ export function InteractiveDemo() {
             : undefined,
         });
         if (cancel) return;
-        lastScrollSyncRef.current = { source: "left", time: Date.now() };
-        terminal.reset();
-        terminal.clear();
-        terminal.write(out);
-        setTimeout(() => terminal.scrollToTop());
+        setAnsiOutput(out);
       }
     })();
     return () => {
@@ -249,16 +217,20 @@ export function InteractiveDemo() {
             Collapse common lines
           </Text>
         </Flex>
-        <Button size="1" disabled={streaming} onClick={() => setStreaming(true)}>
+        <Button
+          size="1"
+          disabled={streaming}
+          onClick={() => setStreaming(true)}
+        >
           Stream
         </Button>
         <div style={{ flex: 1 }} />
         <SegmentedControl.Root
           size="1"
           value={renderMode}
-          onValueChange={(value) => setRenderMode(value as "terminal" | "dom")}
+          onValueChange={(value) => setRenderMode(value as "ansi" | "dom")}
         >
-          <SegmentedControl.Item value="terminal">
+          <SegmentedControl.Item value="ansi">
             ANSI via{" "}
             <Code color="gray" variant="ghost">
               niftty()
@@ -284,58 +256,67 @@ export function InteractiveDemo() {
             onScroll={(ev) => {
               syncScroll(
                 ev.currentTarget.scrollTop /
-                  (ev.currentTarget.scrollHeight - ev.currentTarget.clientHeight),
+                  (ev.currentTarget.scrollHeight -
+                    ev.currentTarget.clientHeight),
                 "left"
               );
             }}
             onInput={(ev) => setBefore(ev.currentTarget.value)}
           />
         </div>
-        <div className={styles.terminalContainer}>
+        <div className={styles.outputContainer}>
           <Text size="1" color="gray" mb="1">
             Output
           </Text>
-          <div
-            className={styles.terminal}
-            ref={(node) => setNode(node || undefined)}
-            style={{
-              display: renderMode === "terminal" ? undefined : "none",
-            }}
-          />
-          {renderMode === "dom" &&
-            (highlighter ? (
-              <CodeRenderer
-                className={styles.domRenderer}
-                ref={domRendererRef}
-                onScroll={(ev) => {
-                  syncScroll(
-                    ev.currentTarget.scrollTop /
-                      (ev.currentTarget.scrollHeight -
-                        ev.currentTarget.clientHeight),
-                    "dom"
-                  );
-                }}
-                highlighter={highlighter}
-                code={streamingCode ?? after}
-                diffWith={before}
-                lang="tsx"
-                theme={theme as shiki.ThemeRegistrationAny}
-                lineNumbers={streamingCode !== null ? true : "both"}
-                streaming={streamingCode !== null ? STREAM_WINDOW : undefined}
-                collapseUnchanged={
-                  streamingCode !== null
-                    ? undefined
-                    : collapse
-                    ? {
-                        padding: 3,
-                        separator: (u) => `··· ${u} unchanged ···`,
-                      }
-                    : undefined
-                }
-              />
-            ) : (
-              <div className={styles.domRenderer}>Loading highlighter...</div>
-            ))}
+          {renderMode === "ansi" ? (
+            <AnsiRenderer
+              className={styles.ansiRenderer}
+              ref={ansiRendererRef}
+              ansi={ansiOutput}
+              backgroundColor={themeColors?.background}
+              foregroundColor={themeColors?.foreground}
+              onScroll={(ev) => {
+                syncScroll(
+                  ev.currentTarget.scrollTop /
+                    (ev.currentTarget.scrollHeight -
+                      ev.currentTarget.clientHeight),
+                  "ansi"
+                );
+              }}
+            />
+          ) : highlighter ? (
+            <CodeRenderer
+              className={styles.domRenderer}
+              ref={domRendererRef}
+              onScroll={(ev) => {
+                syncScroll(
+                  ev.currentTarget.scrollTop /
+                    (ev.currentTarget.scrollHeight -
+                      ev.currentTarget.clientHeight),
+                  "dom"
+                );
+              }}
+              highlighter={highlighter}
+              code={streamingCode ?? after}
+              diffWith={before}
+              lang="tsx"
+              theme={theme as shiki.ThemeRegistrationAny}
+              lineNumbers={streamingCode !== null ? true : "both"}
+              streaming={streamingCode !== null ? STREAM_WINDOW : undefined}
+              collapseUnchanged={
+                streamingCode !== null
+                  ? undefined
+                  : collapse
+                  ? {
+                      padding: 3,
+                      separator: (u) => `${u} unchanged`,
+                    }
+                  : undefined
+              }
+            />
+          ) : (
+            <div className={styles.domRenderer}>Loading highlighter...</div>
+          )}
         </div>
         <div className={styles.editorRight}>
           <Text size="1" color="gray" mb="1">
@@ -347,7 +328,8 @@ export function InteractiveDemo() {
             onScroll={(ev) => {
               syncScroll(
                 ev.currentTarget.scrollTop /
-                  (ev.currentTarget.scrollHeight - ev.currentTarget.clientHeight),
+                  (ev.currentTarget.scrollHeight -
+                    ev.currentTarget.clientHeight),
                 "right"
               );
             }}

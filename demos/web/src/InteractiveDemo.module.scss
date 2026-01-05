@@ -25,13 +25,13 @@
   grid-area: right;
 }
 
-.terminalContainer {
+.outputContainer {
   grid-area: output;
 }
 
 .editorLeft,
 .editorRight,
-.terminalContainer {
+.outputContainer {
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -58,14 +58,8 @@
   }
 }
 
-.terminalContainer {
-  .terminal {
-    flex: 1 1 0;
-    border-radius: 8px;
-    overflow: hidden;
-    min-height: 0;
-  }
-
+.outputContainer {
+  .ansiRenderer,
   .domRenderer {
     flex: 1 1 0;
     border-radius: 8px;

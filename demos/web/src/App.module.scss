@@ -14,6 +14,8 @@
 
 .page {
   min-height: 100vh;
+  padding-left: 16px;
+  padding-right: 16px;
 }
 
 .hero {
@@ -30,6 +32,10 @@
   border-radius: 8px;
   overflow: hidden;
   background: var(--gray-2);
+}
+
+.codeRenderer {
+  padding: 16px;
 }
 
 .featuresGrid {

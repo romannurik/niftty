@@ -1,5 +1,11 @@
 import { forwardRef, useEffect, useMemo, useState } from "react";
-import { tokenize, type Options, type RenderItem, type RenderLine, type TokenizedCode } from "niftty";
+import {
+  tokenize,
+  type Options,
+  type RenderItem,
+  type RenderLine,
+  type TokenizedCode,
+} from "niftty";
 import styles from "./CodeRenderer.module.scss";
 
 type Props = Omit<Options, "highlighter"> & {
@@ -8,9 +14,14 @@ type Props = Omit<Options, "highlighter"> & {
   className?: string;
 };
 
-export const CodeRenderer = forwardRef<HTMLDivElement, Props>(function CodeRenderer(props, ref) {
+export const CodeRenderer = forwardRef<HTMLDivElement, Props>(function CodeRenderer(
+  props,
+  ref
+) {
   const [tokenized, setTokenized] = useState<TokenizedCode | null>(null);
-  const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
+  const [expandedSections, setExpandedSections] = useState<Set<number>>(
+    new Set()
+  );
 
   useEffect(() => {
     let cancel = false;
@@ -23,7 +34,16 @@ export const CodeRenderer = forwardRef<HTMLDivElement, Props>(function CodeRende
     return () => {
       cancel = true;
     };
-  }, [props.code, props.diffWith, props.theme, props.lang, props.collapseUnchanged, props.streaming, props.lineNumbers, props.highlighter]);
+  }, [
+    props.code,
+    props.diffWith,
+    props.theme,
+    props.lang,
+    props.collapseUnchanged,
+    props.streaming,
+    props.lineNumbers,
+    props.highlighter,
+  ]);
 
   const items = useMemo(() => {
     if (!tokenized) return [];
@@ -35,11 +55,20 @@ export const CodeRenderer = forwardRef<HTMLDivElement, Props>(function CodeRende
         result.push(item);
       }
     });
+    // remove newlines at the end
+    let lastItem = tokenized.items.at(-1);
+    if (lastItem?.type === "default" && lastItem.tokens.length === 0) {
+      result.pop();
+    }
     return result;
   }, [tokenized, expandedSections]);
 
   if (!tokenized) {
-    return <div className={styles.container}>Loading...</div>;
+    return (
+      <div className={`${styles.container} ${props.className || ""}`}>
+        Loading...
+      </div>
+    );
   }
 
   const { colors, lineDigits, isDiff } = tokenized;
@@ -79,9 +108,11 @@ export const CodeRenderer = forwardRef<HTMLDivElement, Props>(function CodeRende
               key={`collapsed-${index}`}
               className={styles.collapsedSection}
               onClick={() => toggleSection(originalIndex)}
-              style={{ color: colors.lineNumberForeground }}
+              style={{ color: colors.foreground }}
             >
+              <div className={styles.collapsedSeparator} />
               {item.separatorText}
+              <div className={styles.collapsedSeparator} />
             </div>
           );
         }
@@ -128,27 +159,39 @@ function Line({
 
   const lineNumberStyle = { color: colors.lineNumberForeground };
   const formatLineNumber = (n?: number) =>
-    n !== undefined ? String(n).padStart(lineDigits, " ") : " ".repeat(lineDigits);
+    n !== undefined
+      ? String(n).padStart(lineDigits, " ")
+      : " ".repeat(lineDigits);
 
   return (
     <div
-      className={`${styles.line} ${line.type === "upcoming" ? styles.upcoming : ""}`}
+      className={`${styles.line} ${
+        line.type === "upcoming" ? styles.upcoming : ""
+      }`}
       style={{ backgroundColor }}
     >
       {showLineNumbers && (
         <span className={styles.lineNumber} style={lineNumberStyle}>
           {showBothLineNumbers && isDiff ? (
             <>
-              {formatLineNumber(line.oldLineNumber)} {formatLineNumber(line.newLineNumber)}
+              {formatLineNumber(line.oldLineNumber)}{" "}
+              {formatLineNumber(line.newLineNumber)}
             </>
           ) : (
             formatLineNumber(line.newLineNumber ?? line.oldLineNumber)
           )}
         </span>
       )}
+      {isDiff && (
+        <span className={styles.diffIndicator} style={lineNumberStyle}>
+          {line.type === "added" ? "+" : line.type === "removed" ? "-" : " "}
+        </span>
+      )}
       <span className={styles.lineContent}>
         {line.specialText ? (
-          <span style={{ color: colors.lineNumberForeground, fontStyle: "italic" }}>
+          <span
+            style={{ color: colors.lineNumberForeground, fontStyle: "italic" }}
+          >
             {line.specialText}
           </span>
         ) : (
@@ -168,9 +211,11 @@ function Line({
                 style={{
                   color: token.color,
                   backgroundColor: tokenBackground,
-                  fontStyle: token.fontStyle === "italic" ? "italic" : undefined,
+                  fontStyle:
+                    token.fontStyle === "italic" ? "italic" : undefined,
                   fontWeight: token.fontStyle === "bold" ? "bold" : undefined,
-                  textDecoration: token.fontStyle === "underline" ? "underline" : undefined,
+                  textDecoration:
+                    token.fontStyle === "underline" ? "underline" : undefined,
                 }}
               >
                 {token.content}

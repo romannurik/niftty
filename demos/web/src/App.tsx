@@ -14,16 +14,13 @@ import {
   Theme,
 } from "@radix-ui/themes";
 import "@radix-ui/themes/styles.css";
-import "@xterm/xterm/css/xterm.css";
 import { useEffect, useMemo, useState } from "react";
 import * as shiki from "shiki";
 import { createHighlighter } from "shiki";
 import styles from "./App.module.scss";
 import { CodeRenderer } from "./CodeRenderer";
-import { InteractiveDemo } from "./InteractiveDemo";
+import { DEFAULT_THEME, InteractiveDemo } from "./InteractiveDemo";
 import logotypeUrl from "/logotype.jpg";
-
-const DEFAULT_THEME = "poimandres";
 
 const USAGE_EXAMPLE = `import { niftty } from "niftty";
 
@@ -170,10 +167,11 @@ function App() {
               <Box className={styles.codeExample}>
                 {highlighter ? (
                   <CodeRenderer
+                    className={styles.codeRenderer}
                     highlighter={highlighter}
                     code={USAGE_EXAMPLE}
                     lang="typescript"
-                    theme={DEFAULT_THEME as shiki.ThemeRegistrationAny}
+                    theme={DEFAULT_THEME}
                     lineNumbers={false}
                   />
                 ) : (
