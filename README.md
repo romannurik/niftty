@@ -66,6 +66,22 @@ Renders a code snippet using [shiki](https://shiki.style/), returning an ANSI-en
 | `highlighter?` | `shiki.Highlighter` | Reuse a shiki highlighter instance for better performance |
 | `lineNumbers?` | `boolean \| "both"` | Show line numbers. Use `"both"` for old and new line numbers in diffs |
 
+### `tokenize(options: Options): Promise<TokenizedCode>`
+
+Lower-level function that prepares code/diff for rendering, returning an intermediate data structure that can be used for custom rendering (HTML, React, etc.). Does all the prep work including diffing, collapsing unchanged lines, syntax highlighting, and marking up modified lines.
+
+Takes the same options as `niftty()` and returns a `TokenizedCode` object:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `items` | `RenderItem[]` | Array of lines or collapsed sections to render |
+| `colors` | `ThemeColors` | Theme colors for foreground, background, insertions, removals, etc. |
+| `lineDigits` | `number` | Number of digits needed for line numbers |
+| `maxCols` | `number` | Maximum column width across all lines |
+| `isDiff` | `boolean` | Whether this is a diff render |
+| `isStreaming` | `boolean` | Whether streaming mode is enabled |
+| `currentLineIndex?` | `number` | Index of the current line in streaming mode |
+
 # Streaming
 
 If you're building a coding agent and streaming code from an LLM, and want to show that, turn on streaming mode, and feed in the original code (`diffWith` and the partial currently-emitted `code`. Niftty will render an on-the-fly diff.
