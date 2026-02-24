@@ -105,6 +105,10 @@ Any VSCode- or shiki-compatible theme should work on modern shells.
 
 ![Themes](./art/themes.png)
 
+# Alternatives
+
+If you're looking for a more robust option primarily targeted at web apps, check out the new [`@pierre/diffs` (diffs.com)](https://diffs.com/) from Pierre.
+
 # More
 
 Brought to you with 💜 from New York.
